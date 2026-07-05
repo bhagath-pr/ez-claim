@@ -41,7 +41,7 @@ class EmbeddingGenerator:
     Generates semantic embeddings from structured JSON documents and raw queries.
     """
 
-    DEFAULT_MODEL = "BAAI/bge-small-en-v1.5"
+    DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
     def __init__(
         self, 
@@ -93,7 +93,9 @@ class EmbeddingGenerator:
             "dimension": len(embedding_list),
             # TODO: Once schema is finalized, extract only IDs (e.g., patient_id, claim_id) 
             # to prevent duplicating large JSON payloads in the vector DB.
-            "metadata": document 
+            "metadata": {
+                "policy_id": document.get("policy", {}).get("policy_id", "unknown")
+            }
         }
 
     def embed_documents(self, documents: List[Dict[str, Any]]) -> List[EmbeddedDocument]:
@@ -123,7 +125,9 @@ class EmbeddingGenerator:
                 "text": text,
                 "embedding": embed_list,
                 "dimension": len(embed_list),
-                "metadata": document  # TODO: Optimize metadata storage (see above)
+                "metadata": {
+                    "policy_id": document.get("policy", {}).get("policy_id", "unknown")
+                }  # TODO: Optimize metadata storage (see above)
             })
 
         return results

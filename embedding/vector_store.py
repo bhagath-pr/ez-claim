@@ -88,16 +88,16 @@ class VectorStore:
         document_id: str | None = None,
     ) -> str:
 
-        self._validate_dimension(document.embedding)
+        self._validate_dimension(document["embedding"])
 
         if document_id is None:
             document_id = str(uuid.uuid4())
 
         self.collection.add(
             ids=[document_id],
-            embeddings=[document.embedding],
-            documents=[document.text],
-            metadatas=[document.metadata],
+            embeddings=[document["embedding"]],
+            documents=[document["text"]],
+            metadatas=[document["metadata"]],
         )
 
         logger.info(
@@ -127,15 +127,15 @@ class VectorStore:
 
         for doc in documents:
 
-            self._validate_dimension(doc.embedding)
+            self._validate_dimension(doc["embedding"])
 
             ids.append(str(uuid.uuid4()))
 
-            embeddings.append(doc.embedding)
+            embeddings.append(doc["embedding"])
 
-            texts.append(doc.text)
+            texts.append(doc["text"])
 
-            metadatas.append(doc.metadata)
+            metadatas.append(doc["metadata"])
 
         self.collection.add(
             ids=ids,
