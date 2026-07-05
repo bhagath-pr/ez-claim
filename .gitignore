@@ -15,3 +15,6 @@ vector_db/
 # OS
 .DS_Store
 Thumbs.db
+
+#Track 2
+.env.example
