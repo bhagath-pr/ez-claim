@@ -1,0 +1,234 @@
+import os
+import json
+import uuid
+from typing import Literal
+from dotenv import load_dotenv
+
+from langgraph.graph import StateGraph, END
+from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_groq import ChatGroq
+
+from state import ClaimGraphState
+from models import ClaimTransaction
+from database import SessionLocal
+
+load_dotenv()
+
+# Instantiate Qwen 3 32B via Groq
+# Valid model names on Groq may vary depending on their exact Qwen 3 distribution.
+# qwen2.5-32b-it is currently on Groq API. The user specified Qwen 3 32b, but Qwen 2.5 is the commonly hosted one. 
+# We'll use the environment variable GROQ_MODEL or a descriptive default.
+groq_model_name = os.getenv("GROQ_MODEL", "qwen-2.5-32b-it") # Adjust as Groq updates
+try:
+    llm = ChatGroq(model_name=groq_model_name, temperature=0.1)
+except Exception:
+    llm = None
+
+def ingestion_extraction_node(state: ClaimGraphState):
+    """
+    Simulates retrieving the extracted data from Member A's task.
+    Reads extracted_claim.json and populates the graph state.
+    """
+    json_path = os.path.join("extracted_json", "extracted_claim.json")
+    
+    if os.path.exists(json_path):
+        with open(json_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    else:
+        # Fallback to mock data if the file isn't there yet
+        data = {
+            "patient_age": 42,
+            "policy_number": "HDFC-ERGO-XYZ",
+            "policy_year": "2026",
+            "annual_sum_insured": 200000,
+            "diagnosis_code": "K80.20",
+            "procedure_code": "47600",
+            "treatment_category": "Laparoscopic Surgery",
+            "claim_amount": 85000
+        }
+    
+    return {
+        "patient_age": data.get("patient_age"),
+        "policy_number": data.get("policy_number"),
+        "policy_year": data.get("policy_year"),
+        "annual_sum_insured": data.get("annual_sum_insured"),
+        "diagnosis_code": data.get("diagnosis_code"),
+        "procedure_code": data.get("procedure_code"),
+        "treatment_category": data.get("treatment_category"),
+        "claim_amount": data.get("claim_amount"),
+    }
+    
+def reference_lookup_node(state: ClaimGraphState):
+    """
+    Placeholder for Track B Vector Search.
+    Finds similar cases.
+    """
+    return {
+        "similar_cases_context": "Mock Historical Case 1: Approved 100%. Mock Historical Case 2: Approved 90%."
+    }
+
+def ml_inference_node(state: ClaimGraphState):
+    """
+    Placeholder for Track 1 ML processing.
+    Predicts approval prob, payout ratio, and calculates hard math cap.
+    """
+    claim_amount = state.get("claim_amount", 0)
+    annual_sum = state.get("annual_sum_insured", 0)
+    
+    # Mocking Track 1 outputs
+    prob = 0.95
+    payout = 0.85
+    
+    # Hard math calculation (Golden Rule: Done deterministically in python)
+    # E.g. Sum of past claims = 50,000. Cap = 150,000.
+    amount_settled_ytd = 50000
+    hard_math_cap = max(0, annual_sum - amount_settled_ytd)
+    
+    return {
+        "predicted_approval_prob": prob,
+        "predicted_payout_ratio": payout,
+        "hard_math_cap": hard_math_cap
+    }
+
+def route_triage(state: ClaimGraphState) -> Literal["green_path", "yellow_path", "red_path"]:
+    """
+    Conditional routing for triage Matrix.
+    """
+    prob = state.get("predicted_approval_prob", 0.0)
+    payout = state.get("predicted_payout_ratio", 0.0)
+    
+    if prob >= 0.80 and payout >= 0.95:
+        return "green_path"
+    elif prob >= 0.80 and payout < 0.95:
+        return "yellow_path"
+    else:
+        return "red_path"
+
+def green_path_node(state: ClaimGraphState):
+    return {
+        "final_status": "APPROVED",
+        "required_deposit": 0
+    }
+
+def yellow_path_node(state: ClaimGraphState):
+    # Safety deposit is the difference between claim amount and predicted payout amount
+    claim = state.get("claim_amount", 0)
+    payout_ratio = state.get("predicted_payout_ratio", 0.0)
+    cap = state.get("hard_math_cap", claim)
+    
+    predicted_coverage = min(claim * payout_ratio, cap)
+    deposit = max(0, int(claim - predicted_coverage))
+    
+    return {
+        "final_status": "PENDING_DEPOSIT",
+        "required_deposit": deposit
+    }
+
+def red_path_node(state: ClaimGraphState):
+    return {
+        "final_status": "REJECTED_OR_ESCALATED",
+        "required_deposit": state.get("claim_amount", 0)
+    }
+
+def reasoner_node(state: ClaimGraphState):
+    """
+    Track 3 integration. Uses LLM to provide a human-readable justification.
+    """
+    if llm is None:
+        return {"reasoner_analysis": "[Mock Reasoner] GROQ_API_KEY not set or model error. Analysis skipped."}
+        
+    system_instruction = (
+        "You are an insurance justification reasoning agent. "
+        "Review the structured primitives, the ML statistical predictions, "
+        "and provide a short, natural language justification for the hospital administrative team. "
+        "Do NOT perform calculations. Your job is exclusively to explain the routing outcome."
+    )
+    
+    prompt = f"""
+    Context Data:
+    Status: {state.get('final_status')}
+    Claim Amount: {state.get('claim_amount')}
+    Deposit Required: {state.get('required_deposit')}
+    Predicted Approval: {state.get('predicted_approval_prob')}
+    Predicted Payout Ratio: {state.get('predicted_payout_ratio')}
+    Mathematical Cap: {state.get('hard_math_cap')}
+    Similar Cases: {state.get('similar_cases_context')}
+    
+    Provide your reasoner analysis:
+    """
+    
+    messages = [
+        SystemMessage(content=system_instruction),
+        HumanMessage(content=prompt)
+    ]
+    
+    response = llm.invoke(messages)
+    return {"reasoner_analysis": response.content.strip()}
+    
+def persist_state_node(state: ClaimGraphState):
+    """
+    Saves the finalized state into the persistent DB (Postgres/SQLite).
+    """
+    db = SessionLocal()
+    try:
+        tx = ClaimTransaction(
+            transaction_id=state["transaction_id"],
+            patient_age=state.get("patient_age"),
+            policy_number=state.get("policy_number"),
+            policy_year=state.get("policy_year"),
+            annual_sum_insured=state.get("annual_sum_insured"),
+            diagnosis_code=state.get("diagnosis_code"),
+            procedure_code=state.get("procedure_code"),
+            treatment_category=state.get("treatment_category"),
+            claim_amount=state.get("claim_amount"),
+            predicted_approval_prob=state.get("predicted_approval_prob"),
+            predicted_payout_ratio=state.get("predicted_payout_ratio"),
+            hard_math_cap=state.get("hard_math_cap"),
+            final_status=state.get("final_status"),
+            required_deposit=state.get("required_deposit"),
+            reasoner_analysis=state.get("reasoner_analysis")
+        )
+        db.add(tx)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        print(f"Failed to persist state: {e}")
+    finally:
+        db.close()
+        
+    return {}
+
+# ----------------- GRAPH COMPILATION -----------------
+workflow = StateGraph(ClaimGraphState)
+
+workflow.add_node("ingestion", ingestion_extraction_node)
+workflow.add_node("reference", reference_lookup_node)
+workflow.add_node("ml_inference", ml_inference_node)
+workflow.add_node("green_path", green_path_node)
+workflow.add_node("yellow_path", yellow_path_node)
+workflow.add_node("red_path", red_path_node)
+workflow.add_node("reasoner", reasoner_node)
+workflow.add_node("persist", persist_state_node)
+
+# Flow defined
+workflow.set_entry_point("ingestion")
+workflow.add_edge("ingestion", "reference")
+workflow.add_edge("reference", "ml_inference")
+
+workflow.add_conditional_edges(
+    "ml_inference",
+    route_triage,
+    {
+        "green_path": "green_path",
+        "yellow_path": "yellow_path",
+        "red_path": "red_path"
+    }
+)
+
+workflow.add_edge("green_path", "reasoner")
+workflow.add_edge("yellow_path", "reasoner")
+workflow.add_edge("red_path", "reasoner")
+workflow.add_edge("reasoner", "persist")
+workflow.add_edge("persist", END)
+
+claim_graph = workflow.compile()
