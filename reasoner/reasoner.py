@@ -41,10 +41,9 @@ import time
 # Add parent dir to path to allow importing from embedding
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 try:
-    from embedding.vector_store import VectorStore
-    from embedding.embed_documents import EmbeddingGenerator
+    from embedding.retriever import Retriever
 except ImportError:
-    VectorStore = None
+    Retriever = None
  
 # ---------------------------------------------------------------------------
 # CONFIG — fill these in with whichever cloud provider hosts Qwen 3 32B for
@@ -54,6 +53,7 @@ except ImportError:
 # never hardcode a key into the file.
 # ---------------------------------------------------------------------------
 try:
+    # pyrefly: ignore [missing-import]
     from dotenv import load_dotenv
     # Find .env at the root of the project
     dotenv_path = os.path.join(os.path.dirname(__file__), "..", ".env")
@@ -121,35 +121,31 @@ def get_dummy_historical_examples(extracted_claim: dict = None) -> list:
         },
     ]
 
-    if not extracted_claim or not VectorStore:
-        print("[Warning] extracted_claim missing or VectorStore import failed. Falling back to dummy historical examples.")
+    if not extracted_claim or not Retriever:
+        print("[Warning] extracted_claim missing or Retriever import failed. Falling back to dummy historical examples.")
         return fallback_data
 
     try:
-        generator = EmbeddingGenerator()
-        doc_embedding = generator.embed_document(extracted_claim)["embedding"]
-        
-        # Initialize VectorStore targeting the persist_directory at project root
-        store = VectorStore(
+        retriever = Retriever(
             collection_name="insurance_claims",
             persist_directory=os.path.join(os.path.dirname(__file__), "..", "vector_db")
         )
         
         # Check if DB has data
-        if store.count() == 0:
+        if retriever.store.count() == 0:
             print("[Warning] Vector DB is empty. Falling back to dummy historical examples.")
             return fallback_data
 
-        results = store.search(doc_embedding, top_k=3)
-        metadatas = results.get("metadatas", [[]])[0]
+        results = retriever.search_by_claim(extracted_claim, top_k=5)
         
-        if not metadatas:
+        if not results:
             print("[Warning] Vector DB search returned no metadata. Falling back to dummy.")
             return fallback_data
 
         # Map metadata to expected shape
         historical_claims = []
-        for meta in metadatas:
+        for res in results:
+            meta = res.get("metadata", {})
             historical_claims.append({
                 "diagnosis_code": meta.get("diagnosis_code", "UNKNOWN"),
                 "treatment_category": meta.get("treatment_category", "UNKNOWN"),

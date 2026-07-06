@@ -12,6 +12,9 @@ from state import ClaimGraphState
 from models import ClaimTransaction
 from database import SessionLocal
 
+from embedding.retriever import Retriever
+from reasoner.reasoner import build_master_prompt
+
 load_dotenv()
 
 # Instantiate Qwen 3 32B via Groq
@@ -60,11 +63,43 @@ def ingestion_extraction_node(state: ClaimGraphState):
     
 def reference_lookup_node(state: ClaimGraphState):
     """
-    Placeholder for Track B Vector Search.
+    Track B Vector Search.
     Finds similar cases.
     """
+    claim_dict = {
+        "patient_age": state.get("patient_age"),
+        "policy_number": state.get("policy_number"),
+        "policy_year": state.get("policy_year"),
+        "annual_sum_insured": state.get("annual_sum_insured"),
+        "diagnosis_code": state.get("diagnosis_code"),
+        "procedure_code": state.get("procedure_code"),
+        "treatment_category": state.get("treatment_category"),
+        "claim_amount": state.get("claim_amount"),
+    }
+    
+    try:
+        retriever = Retriever()
+        results = retriever.search_by_claim(claim_dict, top_k=5)
+        
+        if not results:
+            context = "[]"
+        else:
+            historical_claims = []
+            for res in results:
+                meta = res.get("metadata", {})
+                historical_claims.append({
+                    "diagnosis_code": meta.get("diagnosis_code", "UNKNOWN"),
+                    "treatment_category": meta.get("treatment_category", "UNKNOWN"),
+                    "claim_amount": meta.get("claim_amount", 0),
+                    "outcome": meta.get("outcome", "unknown"),
+                    "payout_ratio": meta.get("payout_ratio", 0.0),
+                })
+            context = json.dumps(historical_claims, indent=2)
+    except Exception as e:
+        context = "[]"
+        
     return {
-        "similar_cases_context": "Mock Historical Case 1: Approved 100%. Mock Historical Case 2: Approved 90%."
+        "similar_cases_context": context
     }
 
 def ml_inference_node(state: ClaimGraphState):
@@ -72,8 +107,8 @@ def ml_inference_node(state: ClaimGraphState):
     Placeholder for Track 1 ML processing.
     Predicts approval prob, payout ratio, and calculates hard math cap.
     """
-    claim_amount = state.get("claim_amount", 0)
-    annual_sum = state.get("annual_sum_insured", 0)
+    claim_amount = state.get("claim_amount") or 0
+    annual_sum = state.get("annual_sum_insured") or 0
     
     # Mocking Track 1 outputs
     prob = 0.95
@@ -137,33 +172,46 @@ def reasoner_node(state: ClaimGraphState):
     if llm is None:
         return {"reasoner_analysis": "[Mock Reasoner] GROQ_API_KEY not set or model error. Analysis skipped."}
         
-    system_instruction = (
-        "You are an insurance justification reasoning agent. "
-        "Review the structured primitives, the ML statistical predictions, "
-        "and provide a short, natural language justification for the hospital administrative team. "
-        "Do NOT perform calculations. Your job is exclusively to explain the routing outcome."
-    )
+    claim_dict = {
+        "patient_age": state.get("patient_age"),
+        "policy_number": state.get("policy_number"),
+        "policy_year": state.get("policy_year"),
+        "annual_sum_insured": state.get("annual_sum_insured"),
+        "diagnosis_code": state.get("diagnosis_code"),
+        "procedure_code": state.get("procedure_code"),
+        "treatment_category": state.get("treatment_category"),
+        "claim_amount": state.get("claim_amount"),
+    }
     
-    prompt = f"""
-    Context Data:
-    Status: {state.get('final_status')}
-    Claim Amount: {state.get('claim_amount')}
-    Deposit Required: {state.get('required_deposit')}
-    Predicted Approval: {state.get('predicted_approval_prob')}
-    Predicted Payout Ratio: {state.get('predicted_payout_ratio')}
-    Mathematical Cap: {state.get('hard_math_cap')}
-    Similar Cases: {state.get('similar_cases_context')}
+    stats_dict = {
+        "approval_probability": state.get("predicted_approval_prob"),
+        "predicted_payout_ratio": state.get("predicted_payout_ratio"),
+        "hard_math_cap": state.get("hard_math_cap"),
+        "final_status": state.get("final_status"),
+        "required_deposit": state.get("required_deposit")
+    }
     
-    Provide your reasoner analysis:
-    """
+    try:
+        historical_cases = json.loads(state.get("similar_cases_context") or "[]")
+    except Exception:
+        historical_cases = []
+        
+    master_prompt = build_master_prompt(claim_dict, historical_cases, stats_dict)
     
     messages = [
-        SystemMessage(content=system_instruction),
-        HumanMessage(content=prompt)
+        SystemMessage(content="You are an insurance justification reasoning agent. You never do math yourself."),
+        HumanMessage(content=master_prompt)
     ]
     
-    response = llm.invoke(messages)
-    return {"reasoner_analysis": response.content.strip()}
+    try:
+        response = llm.invoke(messages)
+        # Remove <think> blocks if present
+        import re
+        content = re.sub(r"<think>.*?(?:</think>|$)\s*", "", response.content, flags=re.DOTALL).strip()
+    except Exception as e:
+        content = f"[Reasoner Error] {e}"
+        
+    return {"reasoner_analysis": content}
     
 def persist_state_node(state: ClaimGraphState):
     """

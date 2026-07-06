@@ -57,24 +57,40 @@ def query_qwen_extractor(prompt_content):
     ollama_url = "http://localhost:11434/api/generate"
 
     system_instruction = (
-        "You are a precise healthcare bill data parser. Your sole objective is to scan the text "
-        "and return a valid JSON object matching the requested schema. Do not calculate totals, "
-        "do not make conversational filler, and do not perform any math arithmetic yourself. "
-        "If a field is completely missing from the document text, assign it a value of null."
+        "You are an expert medical coder and billing data validator specializing in the IRDAI ecosystem. "
+        "Your job is to read unstructured hospital invoices and translate the text into a clean, "
+        "standardized schema. You are permitted to infer standard ICD-10 diagnostic classifications "
+        "and medical categories from raw clinical text notes provided in the document. "
+        "Do not calculate totals, do not include conversational fluff, and do not perform any math arithmetic yourself. "
+        "If a specific policy identifier field is missing from the layout, assign it a value of null."
     )
 
     user_prompt = f"""
-    Analyze this hospital bill document and extract the following clinical and financial primitives:
-    - patient_age (integer or null)
-    - policy_number (string or null)
-    - policy_year (string or null)
-    - annual_sum_insured (integer or null)
-    - diagnosis_code (string or null)
-    - procedure_code (string or null)
-    - treatment_category (string or null)
-    - claim_amount (integer or null)
+    Analyze the following hospital invoice text and extract the required primitives into the specified JSON structure.
 
-    Document Content:
+    ### CRITICAL INFERENCE GUIDELINES:
+    1. **diagnosis_code**: Locate the textual diagnosis (e.g., 'Dengue Fever with Thrombocytopenia'). Map this clinical description to its official, billable alphanumeric ICD-10 code string (e.g., 'A91').
+    2. **treatment_category**: Evaluate the overall nature of the bill items. Classify it into standard categories (e.g., 'Medical Management', 'Surgical Management', 'Critical Care', 'Infectious Disease').
+    3. **procedure_code**: If an explicit procedure code is absent but a dominant procedural intervention or consultation standard is listed, map it to the closest global standard or set to null if it is purely routine medical maintenance.
+
+    ### TARGET JSON SCHEMA TEMPLATE:
+    {{
+        "patient_name": "string or null",
+        "patient_age": integer or null,
+        "policy_number": "string or null",
+        "policy_year": "string or null",
+        "annual_sum_insured": integer or null,
+        "diagnosis_description": "Exact text description found on bill",
+        "diagnosis_code": "Inferred alphanumeric ICD-10 classification code",
+        "treatment_category": "Inferred global medical management classification tier",
+        "procedure_code": "Inferred procedure code or null",
+        "claim_amount": integer,
+        "itemized_line_items": [
+            {{ "description": "string", "amount": integer }}
+        ]
+    }}
+
+    ### DOCUMENT CONTENT FOR PARSING:
     {prompt_content}
     """
 
@@ -85,7 +101,7 @@ def query_qwen_extractor(prompt_content):
         "stream": False,
         "format": "json",
         "options": {
-            "temperature": 0.0
+            "temperature": 0.0  # Kept at 0 to guarantee deterministic medical code mapping
         }
     }
 
