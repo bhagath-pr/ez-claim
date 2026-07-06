@@ -79,7 +79,7 @@ def query_qwen_extractor(prompt_content):
     """
 
     payload = {
-        "model": "qwen2.5:7b",
+        "model": "qwen2.5:7b-instruct-q4_K_M",
         "prompt": user_prompt,
         "system": system_instruction,
         "stream": False,
