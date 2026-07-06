@@ -53,6 +53,14 @@ except ImportError:
 # is written against that shape. Set these as environment variables so you
 # never hardcode a key into the file.
 # ---------------------------------------------------------------------------
+try:
+    from dotenv import load_dotenv
+    # Find .env at the root of the project
+    dotenv_path = os.path.join(os.path.dirname(__file__), "..", ".env")
+    load_dotenv(dotenv_path)
+except ImportError:
+    pass
+
 REASONER_API_URL = os.environ.get(
     "REASONER_API_URL", "https://api.groq.com/openai/v1/chat/completions"
 )
@@ -239,6 +247,7 @@ def call_reasoner_llm(prompt: str) -> str:
             {"role": "user", "content": prompt},
         ],
         "temperature": 0.2,
+        "max_tokens": 4096,  # Allow enough tokens for the model's <think> process
     }
  
     max_retries = 3
@@ -253,7 +262,14 @@ def call_reasoner_llm(prompt: str) -> str:
             
         response.raise_for_status()
         data = response.json()
-        return data["choices"][0]["message"]["content"]
+        content = data["choices"][0]["message"]["content"]
+        
+        # Remove <think>...</think> blocks from reasoning models.
+        # Use (?:</think>|$) in case the model's output gets cut off before the closing tag.
+        import re
+        content = re.sub(r"<think>.*?(?:</think>|$)\s*", "", content, flags=re.DOTALL)
+        
+        return content.strip()
         
     raise RuntimeError("Exceeded maximum retries for Groq API due to rate limits.")
  

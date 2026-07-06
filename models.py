@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, Float, Boolean, JSON, DateTime
 from sqlalchemy.sql import func
-from .database import Base
+from database import Base
 
 class ClaimTransaction(Base):
     __tablename__ = "claim_transactions"

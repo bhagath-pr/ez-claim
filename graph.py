@@ -18,7 +18,7 @@ load_dotenv()
 # Valid model names on Groq may vary depending on their exact Qwen 3 distribution.
 # qwen2.5-32b-it is currently on Groq API. The user specified Qwen 3 32b, but Qwen 2.5 is the commonly hosted one. 
 # We'll use the environment variable GROQ_MODEL or a descriptive default.
-groq_model_name = os.getenv("GROQ_MODEL", "qwen-2.5-32b-it") # Adjust as Groq updates
+groq_model_name = os.getenv("GROQ_MODEL", "qwen/qwen3-32b") # Adjust as Groq updates
 try:
     llm = ChatGroq(model_name=groq_model_name, temperature=0.1)
 except Exception:
