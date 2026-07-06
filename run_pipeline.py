@@ -3,6 +3,8 @@ from pyfiglet import figlet_format
 from rich.console import Console
 from rich.panel import Panel
 
+import argparse
+
 # Import components from other modules
 from ingest_extractor import main as run_ingestion
 from graph import claim_graph
@@ -21,12 +23,21 @@ def setup_db():
     Base.metadata.create_all(bind=engine)
 
 def main():
+    parser = argparse.ArgumentParser(description="Run the EZ Claim Unified Pipeline.")
+    parser.add_argument(
+        "bill_filename", 
+        nargs="?", 
+        default="sample_bill.pdf", 
+        help="The filename of the bill inside the raw_bills/ directory. (default: sample_bill.pdf)"
+    )
+    args = parser.parse_args()
+
     print_master_banner()
     
-    console.print("[bold cyan]▶ STEP 1: Data Ingestion & LLM Extraction[/bold cyan]")
+    console.print(f"[bold cyan]▶ STEP 1: Data Ingestion & LLM Extraction ({args.bill_filename})[/bold cyan]")
     try:
         # This will run the extraction and print its own banner and logs.
-        run_ingestion()
+        run_ingestion(target_bill_filename=args.bill_filename)
     except Exception as e:
         console.print(f"[bold red]Ingestion failed:[/bold red] {e}")
         return
@@ -48,10 +59,10 @@ def main():
             # The LangGraph stream yields the state updates from each node.
             # We capture the reasoning analysis and final status from the state updates.
             if isinstance(value, dict):
-                if value.get("reasoner_analysis"):
+                if "reasoner_analysis" in value and value["reasoner_analysis"]:
                     final_reasoning = value["reasoner_analysis"]
 
-                if value.get("final_status"):
+                if "final_status" in value and value["final_status"]:
                     final_status = value["final_status"]
                 
     console.print("\n[bold cyan]▶ STEP 3: Final Output[/bold cyan]")

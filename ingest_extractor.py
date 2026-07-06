@@ -115,7 +115,7 @@ def query_qwen_extractor(prompt_content):
             console.print(f"[bold red]Ollama Connection Failure:[/bold red] {e}")
             return None
 
-def main():
+def main(target_bill_filename="sample_bill.pdf"):
     print_banner()
 
     # --- DIRECTORY CONFIGURATION ---
@@ -127,7 +127,6 @@ def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     # Target files mapped inside the specific directories
-    target_bill_filename = "sample_bill.pdf"
     target_bill_pdf = os.path.join(INPUT_DIR, target_bill_filename)
     output_json_file = os.path.join(OUTPUT_DIR, "extracted_claim.json")
 
