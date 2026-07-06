@@ -35,6 +35,16 @@ Nothing else in this file needs to change.
 import os
 import json
 import requests
+import sys
+import time
+
+# Add parent dir to path to allow importing from embedding
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+try:
+    from embedding.vector_store import VectorStore
+    from embedding.embed_documents import EmbeddingGenerator
+except ImportError:
+    VectorStore = None
  
 # ---------------------------------------------------------------------------
 # CONFIG — fill these in with whichever cloud provider hosts Qwen 3 32B for
@@ -44,10 +54,10 @@ import requests
 # never hardcode a key into the file.
 # ---------------------------------------------------------------------------
 REASONER_API_URL = os.environ.get(
-    "REASONER_API_URL", "https://openrouter.ai/api/v1/chat/completions"
+    "REASONER_API_URL", "https://api.groq.com/openai/v1/chat/completions"
 )
-REASONER_API_KEY = os.environ.get("REASONER_API_KEY", "")
-REASONER_MODEL = os.environ.get("REASONER_MODEL", "qwen/qwen3-32b")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+REASONER_MODEL = os.environ.get("REASONER_MODEL", "qwen/qwen3.6-27b")
  
  
 # ---------------------------------------------------------------------------
@@ -55,7 +65,16 @@ REASONER_MODEL = os.environ.get("REASONER_MODEL", "qwen/qwen3-32b")
 # ---------------------------------------------------------------------------
  
 def get_dummy_extracted_claim() -> dict:
-    """Stands in for Member A's extracted_json/extracted_claim.json."""
+    """Reads Member A's extracted_json/extracted_claim.json or falls back to dummy."""
+    json_path = os.path.join(os.path.dirname(__file__), "..", "extracted_json", "extracted_claim.json")
+    if os.path.exists(json_path):
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"[Warning] Failed to read {json_path}: {e}")
+    
+    print("[Warning] extracted_claim.json not found. Falling back to dummy data.")
     return {
         "patient_age": 42,
         "policy_number": "HDFC-ERGO-XYZ",
@@ -68,9 +87,9 @@ def get_dummy_extracted_claim() -> dict:
     }
  
  
-def get_dummy_historical_examples() -> list:
-    """Stands in for Member B's VectorStore.search() results."""
-    return [
+def get_dummy_historical_examples(extracted_claim: dict = None) -> list:
+    """Calls Member B's VectorStore.search() or falls back to dummy data."""
+    fallback_data = [
         {
             "diagnosis_code": "K80.20",
             "treatment_category": "Laparoscopic Surgery",
@@ -93,6 +112,48 @@ def get_dummy_historical_examples() -> list:
             "payout_ratio": 0.0,
         },
     ]
+
+    if not extracted_claim or not VectorStore:
+        print("[Warning] extracted_claim missing or VectorStore import failed. Falling back to dummy historical examples.")
+        return fallback_data
+
+    try:
+        generator = EmbeddingGenerator()
+        doc_embedding = generator.embed_document(extracted_claim)["embedding"]
+        
+        # Initialize VectorStore targeting the persist_directory at project root
+        store = VectorStore(
+            collection_name="insurance_claims",
+            persist_directory=os.path.join(os.path.dirname(__file__), "..", "vector_db")
+        )
+        
+        # Check if DB has data
+        if store.count() == 0:
+            print("[Warning] Vector DB is empty. Falling back to dummy historical examples.")
+            return fallback_data
+
+        results = store.search(doc_embedding, top_k=3)
+        metadatas = results.get("metadatas", [[]])[0]
+        
+        if not metadatas:
+            print("[Warning] Vector DB search returned no metadata. Falling back to dummy.")
+            return fallback_data
+
+        # Map metadata to expected shape
+        historical_claims = []
+        for meta in metadatas:
+            historical_claims.append({
+                "diagnosis_code": meta.get("diagnosis_code", "UNKNOWN"),
+                "treatment_category": meta.get("treatment_category", "UNKNOWN"),
+                "claim_amount": meta.get("claim_amount", 0),
+                "outcome": meta.get("outcome", "unknown"),
+                "payout_ratio": meta.get("payout_ratio", 0.0),
+            })
+        return historical_claims
+
+    except Exception as e:
+        print(f"[Warning] Vector DB search failed: {e}. Falling back to dummy.")
+        return fallback_data
  
  
 def get_dummy_stats() -> dict:
@@ -153,18 +214,18 @@ Now write the explanation for the hospital administrator.
 # ---------------------------------------------------------------------------
  
 def call_reasoner_llm(prompt: str) -> str:
-    """Sends the prompt to the cloud-hosted Qwen 3 32B model."""
-    if not REASONER_API_KEY:
+    """Sends the prompt to the cloud-hosted Qwen model."""
+    if not GROQ_API_KEY:
         raise RuntimeError(
-            "REASONER_API_KEY is not set. Export it as an environment "
+            "GROQ_API_KEY is not set. Export it as an environment "
             "variable before running this script, e.g.:\n"
-            "  export REASONER_API_KEY=sk-...\n"
+            "  export GROQ_API_KEY=sk-...\n"
             "Also double check REASONER_API_URL and REASONER_MODEL match "
-            "whichever provider you're using to host Qwen 3 32B."
+            "whichever provider you're using to host Qwen."
         )
  
     headers = {
-        "Authorization": f"Bearer {REASONER_API_KEY}",
+        "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json",
     }
  
@@ -180,10 +241,21 @@ def call_reasoner_llm(prompt: str) -> str:
         "temperature": 0.2,
     }
  
-    response = requests.post(REASONER_API_URL, headers=headers, json=payload, timeout=60)
-    response.raise_for_status()
-    data = response.json()
-    return data["choices"][0]["message"]["content"]
+    max_retries = 3
+    for attempt in range(max_retries):
+        response = requests.post(REASONER_API_URL, headers=headers, json=payload, timeout=60)
+        
+        if response.status_code == 429:
+            retry_after = int(response.headers.get("Retry-After", 2))
+            print(f"[Warning] Rate limited by Groq API. Retrying in {retry_after} seconds...")
+            time.sleep(retry_after)
+            continue
+            
+        response.raise_for_status()
+        data = response.json()
+        return data["choices"][0]["message"]["content"]
+        
+    raise RuntimeError("Exceeded maximum retries for Groq API due to rate limits.")
  
  
 # ---------------------------------------------------------------------------
@@ -192,7 +264,7 @@ def call_reasoner_llm(prompt: str) -> str:
  
 def main():
     extracted_claim = get_dummy_extracted_claim()
-    historical_examples = get_dummy_historical_examples()
+    historical_examples = get_dummy_historical_examples(extracted_claim)
     stats = get_dummy_stats()
  
     prompt = build_master_prompt(extracted_claim, historical_examples, stats)
