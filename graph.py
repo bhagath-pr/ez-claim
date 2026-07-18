@@ -102,26 +102,61 @@ def reference_lookup_node(state: ClaimGraphState):
         "similar_cases_context": context
     }
 
+import joblib
+import pandas as pd
+
 def ml_inference_node(state: ClaimGraphState):
     """
-    Placeholder for Track 1 ML processing.
+    Track 1 ML processing.
     Predicts approval prob, payout ratio, and calculates hard math cap.
     """
     claim_amount = state.get("claim_amount") or 0
     annual_sum = state.get("annual_sum_insured") or 0
     
-    # Mocking Track 1 outputs
-    prob = 0.95
-    payout = 0.85
-    
     # Hard math calculation (Golden Rule: Done deterministically in python)
-    # E.g. Sum of past claims = 50,000. Cap = 150,000.
     amount_settled_ytd = 50000
     hard_math_cap = max(0, annual_sum - amount_settled_ytd)
     
+    # ML Inference
+    try:
+        expected_cols = joblib.load(os.path.join("classifier", "model_features.joblib"))
+        
+        # Prepare sparse dataframe from available state
+        df = pd.DataFrame([{
+            'patient.age': state.get('patient_age') or 35,
+            'policy.sum_insured': annual_sum,
+            'claim.financial_breakdown.hospital_bill_amount': claim_amount
+        }])
+        
+        X_new = pd.get_dummies(df, drop_first=True)
+        X_new = X_new.reindex(columns=expected_cols, fill_value=0)
+        
+        # Load and predict classifier independently
+        try:
+            clf = joblib.load(os.path.join("classifier", "approval_classifier.joblib"))
+            prob = clf.predict_proba(X_new)[0][1]
+            prob = float(prob)
+        except Exception as e:
+            print(f"[Warning] Classifier load failed ({e}). Defaulting prob to 0.95.")
+            prob = 0.95
+            
+        # Load and predict regressor independently
+        try:
+            reg = joblib.load(os.path.join("classifier", "payout_regressor.joblib"))
+            payout = reg.predict(X_new)[0]
+            payout = float(max(0.0, min(1.0, payout)))
+        except Exception as e:
+            print(f"[Warning] Regressor load failed ({e}). Defaulting payout to 0.85.")
+            payout = 0.85
+            
+    except Exception as e:
+        print(f"[Warning] ML features load failed: {e}. Falling back to full defaults.")
+        prob = 0.95
+        payout = 0.85
+    
     return {
-        "predicted_approval_prob": prob,
-        "predicted_payout_ratio": payout,
+        "predicted_approval_prob": round(prob, 2),
+        "predicted_payout_ratio": round(payout, 2),
         "hard_math_cap": hard_math_cap
     }
 
