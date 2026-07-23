@@ -1,38 +1,54 @@
 {
-    "patient_name": "Priya Menon",
-    "patient_age": 29,
+    "patient_name": "Rahul Sharma",
+    "patient_age": 42,
     "policy_number": null,
     "policy_year": null,
     "annual_sum_insured": null,
-    "diagnosis_description": "Dengue Fever with Thrombocytopenia",
-    "diagnosis_code": "A91",
-    "treatment_category": "Medical Management",
-    "procedure_code": null,
-    "claim_amount": 36200,
+    "diagnosis_description": "Acute Appendicitis",
+    "diagnosis_code": "K35.9",
+    "treatment_category": "Surgical Management",
+    "procedure_code": "null",
+    "claim_amount": 128800,
     "itemized_line_items": [
         {
-            "description": "Room Charges (General Ward, 3 days)",
-            "amount": 9000
+            "description": "Room Charges",
+            "amount": 16000
         },
         {
             "description": "Doctor Consultation",
-            "amount": 3000
+            "amount": 5000
         },
         {
             "description": "Nursing Charges",
-            "amount": 2400
+            "amount": 6000
         },
         {
-            "description": "Pharmacy / Medicines",
-            "amount": 12500
+            "description": "Pharmacy",
+            "amount": 24650
         },
         {
-            "description": "Laboratory (Platelet monitoring)",
-            "amount": 8200
+            "description": "Laboratory",
+            "amount": 11200
+        },
+        {
+            "description": "Radiology",
+            "amount": 5400
+        },
+        {
+            "description": "Operation Theatre",
+            "amount": 38000
+        },
+        {
+            "description": "Anaesthesia",
+            "amount": 12000
+        },
+        {
+            "description": "Consumables",
+            "amount": 8250
         },
         {
             "description": "Miscellaneous",
-            "amount": 1100
+            "amount": 2300
         }
     ]
 }

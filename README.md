@@ -114,14 +114,31 @@ DATABASE_URL=postgresql://<db_user>:<db_password>@localhost:5432/<db_name>
 
 ---
 
-## How to Run
+### Run React Web Application (New)
+Launch the unified React web application and FastAPI backend server:
+```bash
+# Launch backend server & React application
+python run_react_app.py
+```
+Or run the React frontend in Vite development mode:
+```bash
+# Start backend API server
+python server.py
 
-### Run Streamlit Web Application
-This runs the web interface for uploading invoices:
+# In another terminal, start React dev server
+cd frontend
+npm install
+npm run dev
+```
+Open [http://localhost:8000](http://localhost:8000) (or [http://localhost:5173](http://localhost:5173) for Vite dev server).
+
+### Run Legacy Streamlit Web Application
+This runs the legacy Streamlit interface:
 ```bash
 streamlit run app.py
 ```
 Open [http://localhost:8501](http://localhost:8501) in your browser.
+
 
 ### Run Unified CLI Pipeline
 You can test the entire ingestion and triage pipeline directly on a raw invoice file:
