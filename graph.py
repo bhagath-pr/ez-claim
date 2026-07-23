@@ -17,11 +17,8 @@ from reasoner.reasoner import build_master_prompt
 
 load_dotenv()
 
-# Instantiate Qwen 3 32B via Groq
-# Valid model names on Groq may vary depending on their exact Qwen 3 distribution.
-# qwen2.5-32b-it is currently on Groq API. The user specified Qwen 3 32b, but Qwen 2.5 is the commonly hosted one. 
-# We'll use the environment variable GROQ_MODEL or a descriptive default.
-groq_model_name = os.getenv("GROQ_MODEL", "qwen/qwen3-32b") # Adjust as Groq updates
+# Valid model names on Groq: llama-3.3-70b-versatile, deepseek-r1-distill-qwen-32b, llama-3.1-8b-instant
+groq_model_name = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 try:
     llm = ChatGroq(model_name=groq_model_name, temperature=0.1)
 except Exception:
@@ -240,11 +237,24 @@ def reasoner_node(state: ClaimGraphState):
     
     try:
         response = llm.invoke(messages)
-        # Remove <think> blocks if present
         import re
         content = re.sub(r"<think>.*?(?:</think>|$)\s*", "", response.content, flags=re.DOTALL).strip()
     except Exception as e:
-        content = f"[Reasoner Error] {e}"
+        # Fallback to active supported Groq models on any model deprecation / 404 / 400 error
+        fallback_models = ["llama-3.3-70b-versatile", "deepseek-r1-distill-qwen-32b", "llama-3.1-8b-instant"]
+        content = None
+        for fb_model in fallback_models:
+            try:
+                fb_llm = ChatGroq(model_name=fb_model, temperature=0.1)
+                res = fb_llm.invoke(messages)
+                import re
+                content = re.sub(r"<think>.*?(?:</think>|$)\s*", "", res.content, flags=re.DOTALL).strip()
+                if content:
+                    break
+            except Exception:
+                continue
+        if not content:
+            content = f"[Reasoner Error] {e}"
         
     return {"reasoner_analysis": content}
     

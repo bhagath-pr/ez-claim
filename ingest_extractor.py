@@ -2,10 +2,12 @@ import os
 import json
 import requests
 import pdfplumber
+from dotenv import load_dotenv
 from pyfiglet import figlet_format
 from rich.console import Console
 from rich.text import Text
 
+load_dotenv()
 console = Console()
 
 def print_banner():
@@ -53,8 +55,13 @@ def extract_bill_content(pdf_path):
     return "\n".join(assembled_markdown)
 
 def query_qwen_extractor(prompt_content):
-    """Dispatches the payload to Ollama locally, enforcing strict structural output format."""
-    ollama_url = "http://localhost:11434/api/generate"
+    """Dispatches the payload to Groq Cloud API (llama-3.1-8b-instant), enforcing strict structural JSON output."""
+    groq_api_key = os.environ.get("GROQ_API_KEY", "")
+    if not groq_api_key:
+        console.print("[bold red]Error: GROQ_API_KEY is not set in .env[/bold red]")
+        return None
+
+    groq_url = "https://api.groq.com/openai/v1/chat/completions"
 
     system_instruction = (
         "You are an expert medical coder and billing data validator specializing in the IRDAI ecosystem. "
@@ -94,25 +101,29 @@ def query_qwen_extractor(prompt_content):
     {prompt_content}
     """
 
-    payload = {
-        "model": "qwen2.5:7b-instruct-q4_K_M",
-        "prompt": user_prompt,
-        "system": system_instruction,
-        "stream": False,
-        "format": "json",
-        "options": {
-            "temperature": 0.0  # Kept at 0 to guarantee deterministic medical code mapping
-        }
+    headers = {
+        "Authorization": f"Bearer {groq_api_key}",
+        "Content-Type": "application/json"
     }
 
-    with console.status("[bold green]Streaming data payload to local Qwen2.5 instance..."):
+    payload = {
+        "model": "llama-3.1-8b-instant",
+        "messages": [
+            {"role": "system", "content": system_instruction},
+            {"role": "user", "content": user_prompt}
+        ],
+        "temperature": 0.0,
+        "response_format": {"type": "json_object"}
+    }
+
+    with console.status("[bold green]Streaming document payload to Groq Cloud LLM (llama-3.1-8b-instant)..."):
         try:
-            response = requests.post(ollama_url, json=payload)
+            response = requests.post(groq_url, headers=headers, json=payload, timeout=60)
             response.raise_for_status()
             result_data = response.json()
-            return result_data.get("response")
+            return result_data["choices"][0]["message"]["content"]
         except requests.exceptions.RequestException as e:
-            console.print(f"[bold red]Ollama Connection Failure:[/bold red] {e}")
+            console.print(f"[bold red]Groq Cloud API Connection Failure:[/bold red] {e}")
             return None
 
 def main(target_bill_filename="sample_bill.pdf"):

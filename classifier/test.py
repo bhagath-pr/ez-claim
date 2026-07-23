@@ -1,3 +1,4 @@
+import os
 import json
 import re
 import numpy as np
@@ -20,7 +21,8 @@ def run_pipeline():
     print("1. Ingesting and Flattening JSON...")
     raw_records = []
     # Reads the line-delimited JSON safely
-    with open('cleaned_insurance_claims.txt', 'r', encoding='utf-8') as f:
+    txt_path = os.path.join(os.path.dirname(__file__), 'cleaned_insurance_claims.txt')
+    with open(txt_path, 'r', encoding='utf-8') as f:
         for line in f:
             if line.strip():
                 raw_records.append(json.loads(line))
@@ -31,11 +33,13 @@ def run_pipeline():
     print("2. Sanitizing Data...")
     financial_cols = [
         'patient.annual_income_inr',
+        'policy.sum_insured',
         'claim.financial_breakdown.hospital_bill_amount',
         'claim.financial_breakdown.total_claim_amount'
     ]
     for col in financial_cols:
-        df[col] = df[col].apply(clean_financial)
+        if col in df.columns:
+            df[col] = df[col].apply(clean_financial)
 
     boolean_columns = [
         'patient.health_profile.has_diabetes',
@@ -44,17 +48,36 @@ def run_pipeline():
         'claim.is_cashless'
     ]
     for col in boolean_columns:
-        df[col] = df[col].fillna(False).astype(int)
+        if col in df.columns:
+            df[col] = df[col].fillna(False).astype(int)
 
     df['patient.health_profile.stress_level_score'] = df['patient.health_profile.stress_level_score'].fillna(0.0)
     df['patient.health_profile.bmi'] = df['patient.health_profile.bmi'].fillna(df['patient.health_profile.bmi'].mean())
     
-    print("3. Defining Features and Splitting Data...")
+    print("3. Defining Features and Synthesizing Domain Rejections...")
+    financial_bill = df['claim.financial_breakdown.hospital_bill_amount']
+    sum_insured = df['policy.sum_insured']
+    
+    non_payable = df['claim.financial_breakdown.non_payable_items'].apply(clean_financial) if 'claim.financial_breakdown.non_payable_items' in df.columns else 0
+    non_payable_ratio = np.where(financial_bill > 0, non_payable / financial_bill, 0.0)
+    
+    tobacco = df['patient.health_profile.tobacco_usage'].isin(['smoking', 'chewing'])
+    high_bmi = df['patient.health_profile.bmi'] > 30.0
+    high_risk = tobacco & high_bmi
+    
+    # Realistic Insurance Rejection Triggers:
+    # 1. Hospital bill exceeds annual sum insured
+    # 2. Excessive non-payable/excluded items (> 25% of hospital bill)
+    # 3. High health risk profile with high bill amount (> ₹200,000)
+    rejection_condition = (financial_bill > sum_insured) | (non_payable_ratio > 0.25) | (high_risk & (financial_bill > 200000))
+    
+    df['claim_status'] = np.where(rejection_condition, 0, 1)
+    
+    # Zero out total_claim_amount and payout_ratio for rejected claims
+    df.loc[df['claim_status'] == 0, 'claim.financial_breakdown.total_claim_amount'] = 0.0
+    
     df['payout_ratio'] = df['claim.financial_breakdown.total_claim_amount'] / df['claim.financial_breakdown.hospital_bill_amount']
     df['payout_ratio'] = df['payout_ratio'].fillna(0.0)
-    
-    # Binary Target for the Classifier
-    df['claim_status'] = np.where(df['claim.financial_breakdown.total_claim_amount'] > 0, 1, 0)
     
     features = [
         'patient.age', 'patient.gender', 'patient.marital_status',
@@ -69,7 +92,7 @@ def run_pipeline():
     ]
     
     X_matrix = df[features].copy()
-    X_encoded = pd.get_dummies(X_matrix, drop_first=True)
+    X_encoded = pd.get_dummies(X_matrix, drop_first=True).fillna(0)
     
     # 70/15/15 Split 
     y_class = df['claim_status']
@@ -84,7 +107,7 @@ def run_pipeline():
     # Strictly isolate historically approved claims for the Regressor
     df_approved = df[df['claim_status'] == 1]
     X_reg = df_approved[features].copy()
-    X_reg_encoded = pd.get_dummies(X_reg, drop_first=True)
+    X_reg_encoded = pd.get_dummies(X_reg, drop_first=True).fillna(0)
     
     # Align the regressor matrix columns perfectly with the classifier matrix
     X_reg_encoded = X_reg_encoded.reindex(columns=X_encoded.columns, fill_value=0) 
@@ -95,9 +118,10 @@ def run_pipeline():
     regressor.fit(X_r_train, y_r_train)
     
     print("6. Exporting Trained Models for LangGraph Orchestrator...")
-    joblib.dump(classifier, 'approval_classifier.joblib')
-    joblib.dump(regressor, 'payout_regressor.joblib')
-    joblib.dump(list(X_encoded.columns), 'model_features.joblib')
+    output_dir = os.path.dirname(__file__)
+    joblib.dump(classifier, os.path.join(output_dir, 'approval_classifier.joblib'))
+    joblib.dump(regressor, os.path.join(output_dir, 'payout_regressor.joblib'))
+    joblib.dump(list(X_encoded.columns), os.path.join(output_dir, 'model_features.joblib'))
     
     print("Pipeline Complete! Artifacts generated successfully.")
 

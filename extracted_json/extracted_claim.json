@@ -5,8 +5,8 @@
     "policy_year": null,
     "annual_sum_insured": null,
     "diagnosis_description": "Dengue Fever with Thrombocytopenia",
-    "diagnosis_code": "A91.20",
-    "treatment_category": "Infectious Disease",
+    "diagnosis_code": "A91",
+    "treatment_category": "Medical Management",
     "procedure_code": null,
     "claim_amount": 36200,
     "itemized_line_items": [
