@@ -1,0 +1,38 @@
+{
+    "patient_name": "Priya Menon",
+    "patient_age": 29,
+    "policy_number": null,
+    "policy_year": null,
+    "annual_sum_insured": null,
+    "diagnosis_description": "Dengue Fever with Thrombocytopenia",
+    "diagnosis_code": "A91",
+    "treatment_category": "Medical Management",
+    "procedure_code": null,
+    "claim_amount": 36200,
+    "itemized_line_items": [
+        {
+            "description": "Room Charges (General Ward, 3 days)",
+            "amount": 9000
+        },
+        {
+            "description": "Doctor Consultation",
+            "amount": 3000
+        },
+        {
+            "description": "Nursing Charges",
+            "amount": 2400
+        },
+        {
+            "description": "Pharmacy / Medicines",
+            "amount": 12500
+        },
+        {
+            "description": "Laboratory (Platelet monitoring)",
+            "amount": 8200
+        },
+        {
+            "description": "Miscellaneous",
+            "amount": 1100
+        }
+    ]
+}

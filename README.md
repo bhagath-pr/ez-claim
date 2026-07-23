@@ -28,8 +28,8 @@ Using **LangGraph** to orchestrate workflows, **ChromaDB** for similar case retr
    - Simulates post-discharge bookkeeping once the real insurer settlement arrives.
    - Compares the actual shortfall against the deposit collected at the discharge desk to generate instructions for patient refunds or collections alerts.
 
-4. **Web Frontend (Streamlit)**
-   - Provides a clean, modern user interface where hospital staff can upload hospital invoices, track pipeline execution node-by-node, and view the final adjudication details.
+4. **Web Frontend (React & FastAPI)**
+   - Provides a clean, modern React user interface where hospital staff can upload hospital invoices, track pipeline execution node-by-node, and view the final adjudication details.
 
 ---
 
@@ -37,40 +37,21 @@ Using **LangGraph** to orchestrate workflows, **ChromaDB** for similar case retr
 
 ```
 ez-claim/
-├── app.py                      # Streamlit frontend application
-├── main.py                     # CLI simulation entrypoint
-├── run_pipeline.py             # E2E unified CLI pipeline runner
-├── graph.py                    # LangGraph orchestration state machine
-├── state.py                    # LangGraph claim state schema
-├── models.py                   # SQLAlchemy ORM models (ClaimTransaction)
-├── database.py                 # SQLite/PostgreSQL engine and session setup
-├── requirements.txt            # Python environment dependencies
-│
-├── ingest_extractor.py         # PDF parsing + local Qwen Ollama JSON extractor
-├── raw_bills/                  # Target directory for uploaded raw PDF invoices
-├── extracted_json/             # Output directory for structured claim JSON
-│
-├── classifier/                 # Track 1 Machine Learning models
-│   ├── approval_classifier.joblib
-│   ├── payout_regressor.joblib
-│   └── model_features.joblib
-│
-├── embedding/                  # Track 1/Track 2 Search & Indexing (RAG)
-│   ├── document_builder.py     # Serializes claims into natural text
-│   ├── embed_documents.py      # Generates vectors with Hugging Face Sentence Transformers
-│   ├── vector_store.py         # Persistent ChromaDB collection wrapper
-│   └── retriever.py            # High-level query/claim search interface
-│
-├── reasoner/                   # Track 3 LLM Justification Writer
-│   ├── reasoner.py             # Groq API Qwen master prompt assembler
-│   └── reasoner_output/        # Stores latest reasoner logs
-│
-├── scheduler/                  # Track 3 Reconciliation scheduler
-│   └── reconciliation.py       # Asynchronous background loop using APScheduler
-│
-└── tests/                      # Unit testing scripts
-    ├── run_embedding.py        # Populates vector DB with the latest claim
-    └── test_pipeline.py        # Vector store + retriever flow integration test
+├── frontend/                   # React web application (Vite + React 18)
+├── backend/                    # Python Backend Services & Fast API Server
+│   ├── server.py               # FastAPI backend API server
+│   ├── graph.py                # LangGraph orchestration state machine
+│   ├── state.py                # LangGraph claim state schema
+│   ├── models.py               # SQLAlchemy ORM models (ClaimTransaction)
+│   ├── database.py             # SQLite/PostgreSQL engine and session setup
+│   ├── ingest_extractor.py     # PDF parsing + Groq LLM extractor
+│   ├── requirements.txt        # Backend Python dependencies
+│   ├── classifier/             # Track 1 Machine Learning models
+│   ├── embedding/              # Vector Search & Retrieval (RAG)
+│   ├── reasoner/               # Track 3 LLM Justification Writer
+│   └── scheduler/              # Track 3 Reconciliation scheduler
+├── run_react_app.py            # Unified web application runner
+└── README.md                   # Documentation
 ```
 
 ---
@@ -123,6 +104,7 @@ python run_react_app.py
 Or run the React frontend in Vite development mode:
 ```bash
 # Start backend API server
+cd backend
 python server.py
 
 # In another terminal, start React dev server
@@ -131,13 +113,6 @@ npm install
 npm run dev
 ```
 Open [http://localhost:8000](http://localhost:8000) (or [http://localhost:5173](http://localhost:5173) for Vite dev server).
-
-### Run Legacy Streamlit Web Application
-This runs the legacy Streamlit interface:
-```bash
-streamlit run app.py
-```
-Open [http://localhost:8501](http://localhost:8501) in your browser.
 
 
 ### Run Unified CLI Pipeline

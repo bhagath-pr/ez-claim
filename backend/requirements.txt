@@ -1,0 +1,45 @@
+# EZ Claim Pipeline - Python Dependencies
+# Only packages directly used by this project's backend are listed below.
+
+# --- Web Server & API ---
+fastapi
+uvicorn
+python-multipart
+
+# --- PDF Parsing & Extraction ---
+pdfplumber
+
+# --- AI / LLM Pipeline ---
+langchain-core
+langchain-groq
+langgraph
+groq
+
+# --- Database (SQLAlchemy / PostgreSQL) ---
+sqlalchemy
+psycopg2-binary
+python-dotenv
+
+# --- HTTP Client ---
+requests
+
+# --- ML / Data Science ---
+scikit-learn
+xgboost
+joblib
+pandas
+numpy
+
+# --- Embeddings & Vector Search (RAG) ---
+sentence-transformers
+chromadb
+
+# --- CLI Utilities ---
+pyfiglet
+rich
+
+# --- Background Scheduler ---
+apscheduler
+
+# --- Data Validation ---
+pydantic
